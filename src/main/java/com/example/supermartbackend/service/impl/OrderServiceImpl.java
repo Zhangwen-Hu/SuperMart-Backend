@@ -15,6 +15,9 @@ import com.example.supermartbackend.repository.ProductRepository;
 import com.example.supermartbackend.repository.UserRepository;
 import com.example.supermartbackend.service.OrderService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -39,6 +42,11 @@ public class OrderServiceImpl implements OrderService {
     @Override
     @PreAuthorize("hasRole('USER')")
     @Transactional
+    @Caching(evict = {
+        @CacheEvict(value = "orders", allEntries = true),
+        @CacheEvict(value = "user-orders", key = "T(org.springframework.security.core.context.SecurityContextHolder).getContext().getAuthentication().getName()"),
+        @CacheEvict(value = {"products", "admin-products", "top-popular-products", "user-recent-products", "user-frequent-products"}, allEntries = true)
+    })
     public OrderResponse placeOrder(OrderRequest orderRequest) {
         User currentUser = getCurrentUser();
         
@@ -79,12 +87,12 @@ public class OrderServiceImpl implements OrderService {
         
         List<Order> orders;
         if (isAdmin) {
-            // Admins can see all orders
-            orders = orderRepository.findAll();
+            // Admins can see all orders - cache this expensive operation
+            orders = getAllOrdersCached();
         } else {
             // Users can only see their own orders
-            User currentUser = getCurrentUser();
-            orders = orderRepository.findAllByUserId(currentUser.getId());
+            String username = authentication.getName();
+            orders = getUserOrdersCached(username);
         }
         
         return orders.stream()
@@ -92,8 +100,23 @@ public class OrderServiceImpl implements OrderService {
                 .collect(Collectors.toList());
     }
     
+    @Cacheable(value = "orders", key = "'all'")
+    @Transactional(readOnly = true)
+    public List<Order> getAllOrdersCached() {
+        return orderRepository.findAll();
+    }
+    
+    @Cacheable(value = "user-orders", key = "#username")
+    @Transactional(readOnly = true)
+    public List<Order> getUserOrdersCached(String username) {
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new InvalidCredentialsException("User not found"));
+        return orderRepository.findAllByUserId(user.getId());
+    }
+    
     @Override
     @Transactional(readOnly = true)
+    @Cacheable(value = "orders", key = "'order-' + #id")
     public OrderResponse getOrderById(Long id) {
         Order order = orderRepository.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Order not found"));
@@ -106,6 +129,11 @@ public class OrderServiceImpl implements OrderService {
     
     @Override
     @Transactional
+    @Caching(evict = {
+        @CacheEvict(value = "orders", allEntries = true),
+        @CacheEvict(value = "user-orders", allEntries = true),
+        @CacheEvict(value = {"products", "admin-products"}, allEntries = true)
+    })
     public OrderResponse cancelOrder(Long id) {
         Order order = orderRepository.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Order not found"));
@@ -135,6 +163,10 @@ public class OrderServiceImpl implements OrderService {
     @Override
     @PreAuthorize("hasRole('ADMIN')")
     @Transactional
+    @Caching(evict = {
+        @CacheEvict(value = "orders", allEntries = true),
+        @CacheEvict(value = "user-orders", allEntries = true)
+    })
     public OrderResponse completeOrder(Long id) {
         Order order = orderRepository.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Order not found"));

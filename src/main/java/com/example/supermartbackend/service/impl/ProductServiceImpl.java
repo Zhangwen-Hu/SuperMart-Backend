@@ -9,6 +9,8 @@ import com.example.supermartbackend.repository.ProductRepository;
 import com.example.supermartbackend.repository.UserRepository;
 import com.example.supermartbackend.service.ProductService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -27,6 +29,7 @@ public class ProductServiceImpl implements ProductService {
     
     @Override
     @Transactional(readOnly = true)
+    @Cacheable(value = "products", key = "'all-in-stock'")
     public List<ProductResponse> getAllInStockProducts() {
         return productRepository.findAllInStock().stream()
                 .map(this::mapToResponse)
@@ -35,6 +38,7 @@ public class ProductServiceImpl implements ProductService {
     
     @Override
     @Transactional(readOnly = true)
+    @Cacheable(value = "products", key = "'product-' + #id")
     public ProductResponse getProductById(Long id) {
         Product product = productRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Product not found"));
@@ -44,6 +48,7 @@ public class ProductServiceImpl implements ProductService {
     @Override
     @PreAuthorize("hasRole('ADMIN')")
     @Transactional(readOnly = true)
+    @Cacheable(value = "admin-products", key = "'admin-product-' + #id")
     public AdminProductResponse getProductByIdForAdmin(Long id) {
         Product product = productRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Product not found"));
@@ -53,6 +58,7 @@ public class ProductServiceImpl implements ProductService {
     @Override
     @PreAuthorize("hasRole('ADMIN')")
     @Transactional(readOnly = true)
+    @Cacheable(value = "admin-products", key = "'all-admin'")
     public List<AdminProductResponse> getAllProductsForAdmin() {
         return productRepository.findAll().stream()
                 .map(this::mapToAdminResponse)
@@ -62,6 +68,7 @@ public class ProductServiceImpl implements ProductService {
     @Override
     @PreAuthorize("hasRole('ADMIN')")
     @Transactional
+    @CacheEvict(value = {"products", "admin-products", "top-profitable-products", "top-popular-products"}, allEntries = true)
     public ProductResponse addProduct(ProductRequest productRequest) {
         Product product = new Product();
         product.setName(productRequest.getName());
@@ -77,6 +84,7 @@ public class ProductServiceImpl implements ProductService {
     @Override
     @PreAuthorize("hasRole('ADMIN')")
     @Transactional
+    @CacheEvict(value = {"products", "admin-products", "top-profitable-products", "top-popular-products"}, allEntries = true)
     public ProductResponse updateProduct(Long id, ProductRequest productRequest) {
         Product product = productRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Product not found"));
@@ -108,6 +116,7 @@ public class ProductServiceImpl implements ProductService {
     @Override
     @PreAuthorize("hasRole('ADMIN')")
     @Transactional(readOnly = true)
+    @Cacheable(value = "top-profitable-products", key = "'top-profit-' + #count")
     public List<ProductResponse> getTopProfitableProducts(int count) {
         return productRepository.findTopXByProfit(count).stream()
                 .map(this::mapToResponse)
@@ -117,6 +126,7 @@ public class ProductServiceImpl implements ProductService {
     @Override
     @PreAuthorize("hasRole('ADMIN')")
     @Transactional(readOnly = true)
+    @Cacheable(value = "top-popular-products", key = "'top-popular-' + #count")
     public List<ProductResponse> getTopPopularProducts(int count) {
         return productRepository.findTopXByPopularity(count).stream()
                 .map(this::mapToResponse)
@@ -126,6 +136,7 @@ public class ProductServiceImpl implements ProductService {
     @Override
     @PreAuthorize("hasRole('USER')")
     @Transactional(readOnly = true)
+    @Cacheable(value = "user-recent-products", key = "'recent-' + T(org.springframework.security.core.context.SecurityContextHolder).getContext().getAuthentication().getName() + '-' + #count")
     public List<ProductResponse> getRecentlyPurchasedProducts(int count) {
         User currentUser = getCurrentUser();
         return productRepository.findMostRecentlyPurchased(currentUser.getId(), count).stream()
@@ -136,6 +147,7 @@ public class ProductServiceImpl implements ProductService {
     @Override
     @PreAuthorize("hasRole('USER')")
     @Transactional(readOnly = true)
+    @Cacheable(value = "user-frequent-products", key = "'frequent-' + T(org.springframework.security.core.context.SecurityContextHolder).getContext().getAuthentication().getName() + '-' + #count")
     public List<ProductResponse> getFrequentlyPurchasedProducts(int count) {
         User currentUser = getCurrentUser();
         return productRepository.findMostFrequentlyPurchased(currentUser.getId(), count).stream()
